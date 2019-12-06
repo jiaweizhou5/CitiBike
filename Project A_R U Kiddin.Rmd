@@ -1,0 +1,404 @@
+---
+title: "CitiBike Report"
+author: "Amy Maloche, William Fry, Justin Mao, Sherry Zhou, Delphine Ruaro"
+date: "3 april 2017"
+output: html_document
+---
+
+> This report is aimed at the CitiBike NYC team. Our goal was to analyze the data of the bikes used during July 2017 and bring relevant insights. We used R to explore and analyze the data. Please find attached the link to a **shiny app** for visualizations. 
+
+
+## Exploring the data
+
+```{r}
+library(tidyr)
+library(dplyr)
+
+# Connect to the data
+citibike <- read.csv(file = "201607-citibike-tripdata.csv", header = TRUE, sep = ",")
+
+# Breaks up the dateTime factors into separate fields
+citibike <- separate(citibike, starttime, into=c("startMonth", "startDay", "startYear", "startHour", "startMinute", "startSeconds"))
+citibike <- separate(citibike, stoptime, into=c("stopMonth", "stopDay", "stopYear", "stopHour", "stopMinute", "stopSeconds"))
+station_names <- levels(citibike$start.station.name)
+
+citibike$timeOfDay <- ifelse(as.numeric(citibike$startHour) >= 5 & as.numeric(citibike$startHour) <=12, "morning", ifelse(as.numeric(citibike$startHour) >= 12 & as.numeric(citibike$startHour) <=20, "afternoon", "night"))
+
+citibike$dayOfWeekStart <- (as.numeric(citibike$startDay) - 1)%%7
+citibike$dayOfWeekStart <- factor(citibike$dayOfWeekStart, labels = c("Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"))
+citibike$dayOfWeekEnd <- (as.numeric(citibike$stopDay) - 1)%%7
+citibike$dayOfWeekEnd <- factor(citibike$dayOfWeekEnd, labels = c("Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"))
+
+```
+
+
+## Analyzing the data 
+
+### Ride volume change 
+
+First, we looked at the variation of ride volume with time of the day. 
+
+```{r}
+library(ggplot2)
+# Count ride volume per day of the week
+ggplot(citibike, aes(x=citibike$dayOfWeekStart)) + geom_bar() + xlab("Week day") + ylab("Number of rides") + labs(title="Number of rides per weekday")
+
+```
+
+We can see that the biggest volumes of bikes used where in Fridays and Wednesdays. Interestingly, weekends saw less activity. Monday was the less busy day. 
+
+
+```{r}
+# Count ride volume by time of the day
+ggplot(citibike, aes(x=citibike$timeOfDay)) + geom_bar() + xlab("Time of the day") + ylab("Number of rides") + labs(title="Number of rides per time of the day")
+
+```
+
+We can see that most of the ride volume occur during the afternoon. 
+
+
+### Popular stations
+
+```{r}
+# Top 10 start stations
+topstartcount <- tail(sort(table(citibike$start.station.name)),10)
+topstartcount
+
+# Top 10 end station
+topendcount <- tail(sort(table(citibike$end.station.name)),10)
+topendcount
+
+```
+
+We can see that the most of the stations are popular as both start and end stations. We can note that they are mainly situated in Manhattan. 
+
+
+### Popular routes
+
+We will now get a look at the most popular routes. 
+
+```{r}
+# Aggregate start and end stations to get route
+citibike$route <- with(citibike,paste(as.character(citibike$start.station.name),as.character(citibike$end.station.name)))
+
+# Top 10 routes
+toproute <- tail(names(sort(table(citibike$route))),10)
+toproute
+
+```
+
+We can see that routes around Central Park are very popular. Other famous routes are from/to Soissons Landing and the Yankee Ferry Terminal. Most popular routes seem to be touristic ones, but this might be influenced by the fact that we looked at the data in July, a touristic time of the year. 
+
+A recommendation would be to suggest other popular routes at touristic stations, to suggest tourists other bike tours to add up to their activities.
+
+
+### Bike surplus and deficit
+
+One of the main issue for Citibike is making sure bike storage is sufficient at the stations at every time. However, because some stations are mostly used as starting stations, and others as ending stations, bike surplus or deficit can happen. We analyzed which stations were asymmetric, that is, had either a bike surplus or deficit. 
+
+```{r}
+# Look at number of departures and arrivals for each station
+uniqueStarts <- as.data.frame(table(citibike$start.station.name))
+uniqueEnds <- as.data.frame(table(citibike$end.station.name))
+
+completeFrame <- data.frame(citibike$start.station.name)
+completeFrame <- unique(completeFrame)
+completeFrame$numStarts <- uniqueStarts$Freq[match(completeFrame$citibike.start.station.name, uniqueStarts$Var1)]
+completeFrame$numEnds <- uniqueEnds$Freq[match(completeFrame$citibike.start.station.name, uniqueEnds$Var1)]
+
+# Compute the difference (surplus)
+completeFrame$difference <- completeFrame$numEnds - completeFrame$numStarts
+completeFrame <- arrange(completeFrame, desc(difference))
+
+# Top 10 stations with surplus
+head(completeFrame, 10)
+
+# Top 10 stations with deficit
+tail(completeFrame, 10)
+```
+
+We can see that some stations are very asymmetric: overall 1,240 more bikes were returned than taken from the E 7 St & Avenue A station. On the other hand, Penn Station Valet had an overall deficit of 2,644. The stations in deficit are good candidates for increasing bike storage, and make sure bikers do not have to walk to another station to pick up a bike. 
+
+
+We will now look at the impact of the time of the day in asymmetry.
+
+```{r}
+# Break into  time of day
+morningSubset <- citibike[(citibike$timeOfDay == "morning"),]
+afternoonSubset <- citibike[(citibike$timeOfDay == "afternoon"),]
+midnightSubset <- citibike[(citibike$timeOfDay == "night"),]
+
+uniqueStartsMorning <- as.data.frame(table(morningSubset$start.station.name))
+uniqueEndsMorning <- as.data.frame(table(morningSubset$end.station.name))
+
+uniqueStartsAfternoon <- as.data.frame(table(afternoonSubset$start.station.name))
+uniqueEndsAfternoon <- as.data.frame(table(afternoonSubset$end.station.name))
+
+uniqueStartsMidnight <- as.data.frame(table(midnightSubset$start.station.name))
+uniqueEndsMidnight <- as.data.frame(table(midnightSubset$end.station.name))
+
+completeFrame$numStartsMorning <- uniqueStartsMorning$Freq[match(completeFrame$citibike.start.station.name, uniqueStartsMorning$Var1)]
+completeFrame$numEndsMorning <- uniqueEndsMorning$Freq[match(completeFrame$citibike.start.station.name, uniqueEndsMorning$Var1)]
+completeFrame$differenceMorning <- completeFrame$numEndsMorning - completeFrame$numStartsMorning
+
+# Top 10 stations with surplus in morning
+morningList <- arrange(completeFrame, desc(differenceMorning))
+head(morningList$citibike.start.station.name, 10)
+
+# Top 10 stations with deficit in morning
+tail(morningList$citibike.start.station.name, 10)
+
+completeFrame$numStartsAfternoon <- uniqueStartsAfternoon$Freq[match(completeFrame$citibike.start.station.name, uniqueStartsAfternoon$Var1)]
+completeFrame$numEndsAfternoon <- uniqueEndsAfternoon$Freq[match(completeFrame$citibike.start.station.name, uniqueEndsAfternoon$Var1)]
+completeFrame$differenceAfternoon <- completeFrame$numEndsAfternoon - completeFrame$numStartsAfternoon
+
+# Top 10 stations with surplus in afternoon
+afternoonList <- arrange(completeFrame, desc(differenceAfternoon))
+head(afternoonList$citibike.start.station.name, 10)
+
+# Top 10 stations with deficit in afternoon
+tail(afternoonList$citibike.start.station.name, 10)
+
+completeFrame$numStartsMidnight <- uniqueStartsMidnight$Freq[match(completeFrame$citibike.start.station.name, uniqueStartsMidnight$Var1)]
+completeFrame$numEndsMidnight <- uniqueEndsMidnight$Freq[match(completeFrame$citibike.start.station.name, uniqueEndsMidnight$Var1)]
+completeFrame$differenceMidnight <- completeFrame$numEndsMidnight - completeFrame$numStartsMidnight
+
+# Top 10 stations with surplus at night
+midnightList <- arrange(completeFrame, desc(differenceMidnight))
+head(midnightList$citibike.start.station.name, 10)
+
+# Top 10 stations with deficit at night
+tail(midnightList$citibike.start.station.name, 10)
+
+```
+
+We can see that some stations with a deficit in the morning have a surplus in the afternoon, probably due to bikers going to and coming back from work: 1 Ave & E 78 St, E 14 St & Avenue B, 12 Ave & W 40 St.
+
+```{r}
+# Break into days of the week and see if the same patterns shows up on weekends
+weekdaySubset <- subset(citibike, subset = (citibike$dayOfWeekStart != "Saturday" & citibike$dayOfWeekStart != "Sunday"))
+weekendSubset <- subset(citibike, subset = (citibike$dayOfWeekStart == "Saturday" | citibike$dayOfWeekStart == "Sunday"))
+
+uniqueStartsWeek <- as.data.frame(table(weekdaySubset$start.station.name))
+uniqueEndsWeek <- as.data.frame(table(weekdaySubset$end.station.name))
+
+uniqueStartsWeekend <- as.data.frame(table(weekendSubset$start.station.name))
+uniqueEndsWeekend <- as.data.frame(table(weekendSubset$end.station.name))
+
+completeFrame$numStartsWeek <- uniqueStartsWeek$Freq[match(completeFrame$citibike.start.station.name, uniqueStartsWeek$Var1)]
+completeFrame$numEndsWeek <- uniqueEndsWeek$Freq[match(completeFrame$citibike.start.station.name, uniqueEndsWeek$Var1)]
+completeFrame$differenceWeek <- completeFrame$numEndsWeek - completeFrame$numStartsWeek
+
+# Top 10 stations with surplus during the week (Mon-Fri)
+weekList <- arrange(completeFrame, desc(differenceWeek))
+head(weekList$citibike.start.station.name, 10)
+
+# Top 10 stations with deficit during the week
+tail(weekList$citibike.start.station.name, 10)
+
+
+completeFrame$numStartsWeekend <- uniqueStartsWeekend$Freq[match(completeFrame$citibike.start.station.name, uniqueStartsWeekend$Var1)]
+completeFrame$numEndsWeekend <- uniqueEndsWeekend$Freq[match(completeFrame$citibike.start.station.name, uniqueEndsWeekend$Var1)]
+completeFrame$differenceWeekend <- completeFrame$numEndsWeekend - completeFrame$numStartsWeekend
+
+# Top 10 stations with surplus during the weekend 
+weekendList <- arrange(completeFrame, desc(differenceWeekend))
+head(weekendList$citibike.start.station.name, 10)
+
+# Top 10 stations with deficit during the weekend
+tail(weekendList$citibike.start.station.name, 10)
+
+
+```
+
+It seems like Broadway, Central Park and Columbus Avenue are always in deficit, both during the week and over the weekend.
+
+
+
+### Bike maintenance
+
+One of the key issues for Citibike is bike maintenance. We analyzed the data to identify the bikes that were the most used. There were two ways to look at this problem, depending on what impacts most bike usage and quality: bikes used the most frequently, and bikes ridden for the longest time. Depending on the angle taken, the most used bikes are not the same. 
+
+First, we look at most frequenly used bikes.
+
+```{r}
+# Gives the bike ids of the top 5 bikes
+topbikes <- tail(names(sort(table(citibike$bikeid))),5)
+topbikes
+# Gives the bike ids + nbr of times used of top 5 bikes
+tail(sort(table(citibike$bikeid)),5)
+
+```
+
+ ```{r}
+# # Average total trip duration of top bikes in July in seconds
+# topbikessec <- sum(citibike$tripduration[(citibike$bikeid %in% topbikes)])/length(topbikes)
+# topbikessec
+# topbikesmin <- round(topbikessec/60)
+# topbikesmin
+# 
+# 
+# # Average total trip duration of bikes in July in seconds (taking out the top 5 bikes)
+# avgsec2 <- sum(citibike$tripduration[!(citibike$bikeid %in% topbikes$bikeid)])/length(unique(citibike$bikeid[!(citibike$bikeid %in% topbikes)]))
+# avgsec2
+# avgmin2 <- round(avgsec2/60)
+# avgmin2
+# 
+# # Ratio 
+# ratio <- round(topbikesmin/avgmin2,1) 
+# ratio
+#commenting code -> works when run individually but not when knitting.  Results/analysis below applicable
+```
+
+On average, the top 5 bikes were used more than twice as much as the rest of the bikes.
+
+
+Now, we'll look at bikes that were ridden for the longest time throughout July. 
+
+```{r}
+# Get total duration per bike id
+sumduration <- aggregate(citibike$tripduration ~ citibike$bikeid, data=citibike, FUN = sum)
+colnames(sumduration) <- c("bikeid", "tripduration")
+
+```
+
+```{r}
+# Gives bike ids of the top 5 bikes
+sumduration <- sumduration[order(-sumduration$tripduration),]
+topbikes2 <- head(sumduration,5, row.names=F)
+topbikes2[1]
+
+```
+
+```{r}
+# Average total trip duration of top bikes in July in seconds
+topbikessec <- sum(topbikes2$tripduration)/nrow(topbikes2)
+topbikessec
+topbikesmin <- round(topbikessec/60)
+topbikesmin
+
+# Average total trip duration of bikes in July in seconds (taking out the top 5 bikes)
+sumduration2 <- sumduration[!(sumduration$bikeid %in% topbikes2$bikeid),]
+avgsec2 <- sum(sumduration2$tripduration)/nrow(sumduration2)
+avgsec2
+avgmin2 <- round(avgsec2/60)
+avgmin2
+ 
+# Ratio 
+ratio <- round(topbikesmin/avgmin2,1) 
+ratio
+
+```
+
+On average, the top 5 bikes had a total trip duration 35 times longer than the rest of the bikes!
+
+This implies that some bikes might require much more maintenance than others. A next step in the analysis would look at the stations from which those bikes were taken most of the time. We can already assume that this would correspond the most popular stations found earlier. A recommendation could be to frequently check and replace bikes at those stations. 
+
+
+### Stations with longest rides
+
+```{r}
+ # Changing this dataset into data table
+library(data.table)
+citibike_datatable <- as.data.table(citibike)
+
+# Summing durations based on each star station id
+citibike_datatable[, total_trip_durations := sum(tripduration), by=start.station.id ]
+
+# Deleleing duplicate columns (with same durations)
+unique.duration <- unique(citibike_datatable, by = "start.station.id")
+
+# Visualizing the conclusion by using ggplot
+library(ggplot2)
+ggplot(unique.duration, aes(start.station.id, total_trip_durations))+geom_jitter() + xlab("Start Station ID") + ylab("Total trip duration") + labs(title="Total trip duration by station ID") 
+
+```
+
+We find that Station 2006 originated the longest rides in July.
+
+```{r}
+# # Seperating the starttime columns into subcolumns
+# library(tidyr)
+# New_citibike_datatable <- separate(citibike_datatable, starttime, into = c("Month", "Day", "Year", "Hour", "Minute"))
+#  
+#  # Converting hour column into factors
+# New_citibike_datatable$Hour <- as.numeric(New_citibike_datatable$Hour)
+#  
+#  # Dividing the time of a day into "AM" "PM" "Midnight"
+# New_AM <- subset(New_citibike_datatable,New_citibike_datatable$Hour>=5 
+#                  & New_citibike_datatable$Hour<=12)
+# 
+# New_PM <- subset(New_citibike_datatable,New_citibike_datatable$Hour>=13 
+#                  & New_citibike_datatable$Hour<=20)
+# 
+# New_Midnight <- subset(New_citibike_datatable,New_citibike_datatable$Hour>=21 
+#                        | New_citibike_datatable$Hour<=4)
+# 
+# 
+# #Then go back using the function in line 7. 
+# 
+# New_AM[, total_trip_durations_AM := sum(tripduration), by=start.station.id ]
+# unique.new_am <- unique(New_AM, by = "start.station.id")
+# 
+# # Top 10 stations with origniating longest ride duration at "AM" period
+# head(sort(unique.new_am$total_trip_durations_AM,TRUE), n = 10L)
+# 
+# # Top 10 stations with origniating longest ride duration at "PM" period
+# New_PM[, total_trip_durations_PM := sum(tripduration), by=start.station.id ]
+# unique.new_pm <- unique(New_PM, by = "start.station.id")
+# head(sort(unique.new_pm$total_trip_durations_PM,TRUE), n = 10L)
+# 
+# # Top 10 stations with origniating longest ride duration at "Midnight" period
+# New_Midnight[, total_trip_durations_Midnight := sum(tripduration), by=start.station.id ]
+# unique.new_midnight <- unique(New_Midnight, by = "start.station.id")
+# head(sort(unique.new_midnight$total_trip_durations_Midnight,TRUE), n = 10L)
+
+```
+
+When looking at the top 10 stations originating the longest ride durations in the morning, afternoon and at night, the average durations of those top 10 stations were respectively 4,443,815 seconds, 8,489,460 seconds and 2,326,661 seconds respectively. 
+
+Afternoon rides are therefore the longest, while night rides were the shortest. 
+
+
+### Weather impact
+
+Here, we looked at the impact of different variables on bike use. 
+
+```{r}
+# Data imported from [...]
+weather <- read.csv("201607-Weather.csv", sep=";")
+colnames(weather)[1] <- "Day"
+
+# Calculates number of trips per day
+for (i in 1:length(weather$Day)){
+  weather$bikes[i] <- nrow(citibike[citibike$startDay== as.character(i), ])
+}
+
+# Impact of precipitation (inches) on bike use
+plot(weather$Precipitation, weather$bikes)
+lm(formula = weather$bikes ~ weather$Precipitation)
+abline(lm(weather$bikes ~ weather$Precipitation))
+
+```
+
+We can see that bike use decreased when precipitation level increased. This would mean that the company could probably decrease bike storage on rainy days if needed. 
+
+```{r}
+# Impact of average temperature
+plot(weather$Avg.Temp, weather$bikes)
+```
+
+```{r}
+# Impact of average humidity
+plot(weather$Humidity, weather$bikes)
+
+```
+
+Temperature and Humidity did not seem to have a clear impact on bike use. We can note that this analysis would probably be more precise on an annual basis (comparing bike use from January until December).
+
+
+
+
+
+
+
